@@ -1,3 +1,8 @@
+## 0.1.1
+
+- Add an English quick start that covers installing the package, preparing the model, and transcribing a first Persian WAV file.
+- Add a playable Persian WAV sample, its actual transcript, and a screenshot of the Flutter example running in Chrome.
+
 ## 0.1.0
 
 - Recognize Persian speech with the fine-tuned Nemotron streaming model.

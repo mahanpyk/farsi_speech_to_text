@@ -2,6 +2,73 @@
 
 `farsi_speech_to_text` turns Persian speech into text in Flutter. Transcribe a WAV file or stream microphone audio for interim and final text. The package runs Mehdi Allahyari's Persian fine-tune of NVIDIA Nemotron with sherpa-onnx. Audio and transcripts stay on the device. Once the model is available locally, inference works offline.
 
+## Quick start
+
+The package requires Flutter 3.41 or later and Dart 3.11 or later. For a first run, try the example in Chrome or on macOS. The first run needs an internet connection and storage for the **666.6 MB** model download.
+
+### Get your first transcript
+
+Clone the repository and run the included app. The example was tested with Flutter 3.50.
+
+```sh
+git clone https://github.com/mahanpyk/farsi_speech_to_text.git
+cd farsi_speech_to_text/example
+flutter pub get
+flutter run -d chrome
+```
+
+On macOS with the Flutter desktop toolchain configured, you can run `flutter run -d macos` instead. See the [example setup](example/README.md) for other devices.
+
+1. [Download the 8-second Persian WAV][demo-wav]. It is already in the required mono, 16-bit PCM format at 16 kHz.
+2. In the app, select **آماده‌سازی مدل** (Prepare model) and wait for the download to finish.
+3. Select **انتخاب فایل WAV** (Choose WAV file), open `fa_ir_0320.wav`, and look under **متن** (Transcript). See the [example result](#demo) below.
+
+### Add it to your Flutter app
+
+From your app directory, install the dependency.
+
+```sh
+flutter pub add farsi_speech_to_text
+```
+
+On Android, iOS, macOS, Windows, and Linux, pass a writable model directory and the local path of a Persian WAV file to this function. For example, put the model in a subdirectory of `getApplicationSupportDirectory()` from [path_provider](https://pub.dev/packages/path_provider). Check the [native app configuration](#native-permissions) before downloading the model or opening files.
+
+```dart
+import 'dart:io';
+
+import 'package:farsi_speech_to_text/farsi_speech_to_text.dart';
+
+Future<String> transcribePersianWav(
+  Directory modelDirectory,
+  String wavPath, {
+  void Function(double)? onDownloadProgress,
+}) async {
+  final model = FarsiModel.at(modelDirectory);
+  try {
+    await model.verify();
+  } on FarsiModelException {
+    await model.download(onProgress: onDownloadProgress);
+  }
+
+  return FarsiSpeechToText(model: model).transcribeWav(wavPath);
+}
+```
+
+For Flutter Web, read the selected file as bytes and use the [browser API](#flutter-web).
+
+## Demo
+
+[Play the Persian input clip][demo-player] or [download the WAV][demo-wav]. The Flutter example in Chrome returned this text for that file.
+
+> در آب و هوای گرم خاورمیانه خانه زیاد اهمیت نداشت
+
+![The Flutter example in Chrome displaying the Persian transcript after WAV transcription](doc/demo/wav-transcription.webp)
+
+The clip is from [Google FLEURS](https://huggingface.co/datasets/google/fleurs), distributed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and used here as provided by [FluidInference](https://huggingface.co/datasets/FluidInference/fleurs-full).
+
+[demo-wav]: https://huggingface.co/datasets/FluidInference/fleurs-full/resolve/1cca811bb8ea4d370345f108f00518167040282c/fa_ir/fa_ir_0320.wav
+[demo-player]: https://huggingface.co/datasets/FluidInference/fleurs-full/blob/1cca811bb8ea4d370345f108f00518167040282c/fa_ir/fa_ir_0320.wav
+
 ## Platform support
 
 The package requires Flutter 3.41+ and Dart 3.11+. The example includes a runner for each platform listed below.
@@ -17,9 +84,7 @@ The package requires Flutter 3.41+ and Dart 3.11+. The example includes a runner
 
 Flutter verification used Flutter 3.50 and Dart 3.14. Linux and Windows verification covered the native libraries. The Flutter desktop runners still require a build and test on their respective host operating systems. See the [sherpa-onnx architecture matrix](https://pub.dev/packages/sherpa_onnx#supported-platforms).
 
-## Install
-
-Once the package is available on pub.dev, run `flutter pub add farsi_speech_to_text`.
+## Install from a local checkout
 
 To use a local checkout, add its directory to your app's `pubspec.yaml` and run `flutter pub get`.
 
@@ -31,27 +96,7 @@ dependencies:
 
 ## Prepare the model
 
-Use a writable directory dedicated to this model, such as a subdirectory of the location returned by `getApplicationSupportDirectory()` from [path_provider](https://pub.dev/packages/path_provider). Call `download()` when the user chooses to install the model. The initial download is **666.6 MB (635.7 MiB)**.
-
-```dart
-import 'dart:io';
-
-import 'package:farsi_speech_to_text/farsi_speech_to_text.dart';
-
-Future<FarsiSpeechToText> prepareRecognizer(
-  Directory modelDirectory,
-  void Function(double) onDownloadProgress,
-) async {
-  final model = FarsiModel.at(modelDirectory);
-  try {
-    await model.verify();
-  } on FarsiModelException {
-    await model.download(onProgress: onDownloadProgress);
-  }
-
-  return FarsiSpeechToText(model: model);
-}
-```
+Use a writable directory dedicated to this model. Call `download()` when the user chooses to install the model. The initial download is **666.6 MB (635.7 MiB)**. Reuse a `FarsiModel` instance when transcribing multiple files to keep its successful integrity check cached.
 
 - `isInstalled()` checks that all required files are present and match their expected sizes.
 - `verify()` checks SHA-256 digests. Recognition calls it automatically on first use. Keep the verified files in place for the lifetime of that `FarsiModel` instance.
@@ -63,14 +108,6 @@ The native recognizer uses two CPU threads by default. Set `numThreads` to a val
 ## Transcribe a WAV file
 
 Call `transcribeWav` with the local path to a non-empty, mono, signed 16-bit PCM WAV file. This API loads the file into memory. For long recordings, decode the audio in chunks and use the streaming API.
-
-```dart
-Future<String> transcribeFile(
-  FarsiSpeechToText recognizer,
-  String wavPath,
-) =>
-    recognizer.transcribeWav(wavPath);
-```
 
 To prepare another audio format or a stereo recording, convert it to mono PCM WAV first.
 
