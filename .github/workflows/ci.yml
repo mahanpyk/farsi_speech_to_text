@@ -1,0 +1,262 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.50.0'
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: 'false'
+          pub-cache: 'false'
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Test the changed-file formatter
+        run: python3 -B -m unittest discover -s .github/scripts
+      - name: Check changed Dart files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 -B .github/scripts/check_format.py "$BASE_SHA"
+
+  analysis:
+    name: Analysis
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: 'false'
+          pub-cache: 'false'
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Analyze package
+        run: flutter analyze --no-pub lib test
+      - name: Analyze example
+        working-directory: example
+        run: flutter analyze --no-pub
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: 'false'
+          pub-cache: 'false'
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Run package tests
+        run: flutter test --no-pub
+      - name: Run example tests
+        working-directory: example
+        run: flutter test --no-pub
+      - name: Run browser tests
+        run: flutter test --no-pub --platform chrome test/web
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: 'false'
+          pub-cache: 'false'
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Collect package coverage
+        run: flutter test --no-pub --coverage
+      - name: Collect example coverage
+        working-directory: example
+        run: flutter test --no-pub --coverage
+      - name: Summarize line coverage
+        run: |
+          for report in coverage/lcov.info example/coverage/lcov.info; do
+            test -s "$report"
+            awk -F: '
+              /^LF:/ { lines += $2 }
+              /^LH:/ { hits += $2 }
+              END {
+                if (lines > 0) {
+                  printf "- %s: %d/%d lines (%.1f%%)\n", FILENAME, hits, lines, 100 * hits / lines
+                } else {
+                  printf "- %s: no instrumented lines\n", FILENAME
+                }
+              }
+            ' "$report" >> "$GITHUB_STEP_SUMMARY"
+          done
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: |
+            coverage/lcov.info
+            example/coverage/lcov.info
+          if-no-files-found: error
+
+  workflow_security:
+    name: Workflow security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate GitHub Actions syntax
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Audit workflow security and action pins
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          version: '1.32.0'
+          collect: workflows
+          online-audits: 'false'
+          token: ''
+          advanced-security: 'false'
+          annotations: 'true'
+
+  compatibility:
+    name: Compatibility (Flutter ${{ matrix.flutter }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        flutter: ['3.41.0', '3.50.0']
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ matrix.flutter }}
+          cache: 'false'
+          pub-cache: 'false'
+      - name: Verify library compatibility
+        run: |
+          flutter --version
+          flutter pub get --no-example
+          flutter analyze --no-pub lib test
+          flutter test --no-pub
+          flutter test --no-pub --platform chrome test/web
+
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: android
+            runner: ubuntu-24.04
+          - platform: ios
+            runner: macos-15
+          - platform: linux
+            runner: ubuntu-24.04
+          - platform: macos
+            runner: macos-15
+          - platform: windows
+            runner: windows-2025
+          - platform: web
+            runner: ubuntu-24.04
+          - platform: web-wasm
+            runner: ubuntu-24.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Java
+        if: matrix.platform == 'android'
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Linux desktop build dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake git libgtk-3-dev ninja-build pkg-config
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: 'false'
+          pub-cache: 'false'
+      - name: Resolve example dependencies
+        working-directory: example
+        run: flutter pub get
+      - name: Build example
+        working-directory: example
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          case "$PLATFORM" in
+            android) flutter build apk --release --split-per-abi --target-platform android-arm64 --no-pub ;;
+            ios) flutter build ios --release --no-codesign --no-pub ;;
+            linux|macos|windows|web) flutter build "$PLATFORM" --release --no-pub ;;
+            web-wasm) flutter build web --release --wasm --no-pub ;;
+            *) echo "Unknown build platform: $PLATFORM" >&2; exit 1 ;;
+          esac
+
+  required:
+    name: Required checks
+    if: ${{ always() }}
+    needs: [format, analysis, tests, coverage, workflow_security, compatibility, build]
+    permissions: {}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every check to succeed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key) \(.value.result)"' <<< "$NEEDS"
+          jq -e 'length > 0 and all(.[]; .result == "success")' <<< "$NEEDS"

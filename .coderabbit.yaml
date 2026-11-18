@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://docs.coderabbit.ai/schema/schema.v2.json
+reviews:
+  profile: chill
+  auto_approvals:
+    enabled: false
+  review_progress: false
+  commit_status: false
+  auto_review:
+    enabled: true
+    drafts: false
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - files: doc/review-guidelines.md
+        applyTo: "**/*"
