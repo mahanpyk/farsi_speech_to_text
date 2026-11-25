@@ -9,7 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  material_ui: ^1.1.0
+  material_ui: ^1.11.1
   farsi_speech_to_text:
     path: ..
   file_selector: ^1.0.3
